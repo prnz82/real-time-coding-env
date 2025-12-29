@@ -1,79 +1,71 @@
 # Real-Time Collaborative Code Editor
 
-A small React-based collaborative editor that uses an event-driven, socket-based architecture to synchronize edits in real time. The system uses a Last-Write-Wins (LWW) conflict resolution strategy so concurrent edits converge simply and predictably.
+A small React-based collaborative editor that uses an event-driven, Socket.io-based architecture to synchronize code in real time. The system uses a Last-Write-Wins (LWW) approach so the most recently received update from the server becomes the canonical state for all clients.
 
 ## Key Features
 
-- Event-driven, socket-based synchronization between clients and server
-- Real-time collaboration with per-change events and cursor updates
-- Last-Write-Wins (LWW) conflict resolution for concurrent edits
-- Minimal React frontend and a lightweight Node socket server (see `socket.js`)
+- Event-driven synchronization between clients and server using Socket.io
+- Real-time collaboration with full-document synchronization
+- Last-Write-Wins (LWW) conflict resolution for concurrent updates
+- Minimal React frontend and a lightweight Node.js server (see `server.js`)
 
 ## Architecture Overview
 
 The app is organized as a client-server system:
 
-- Clients: React app in `src/
-- Server: simple socket endpoint
+- **Clients**: React application in `src/` using `socket.io-client`.
+- **Server**: Node.js/Express server in `server.js` using `socket.io` to manage rooms and broadcasting.
 
-Communication is event-driven over WebSocket (or socket.io): clients emit change events to the server, the server broadcasts events to other clients, and clients apply changes locally.
+Communication is event-driven over Socket.io: clients emit updates to the server, the server broadcasts these updates to other clients in the same room, and clients apply the changes locally.
 
-Events (typical):
+### Key Events (`src/Actions.js`):
 
-- `connect` — client connected
-- `init` — initial document state
-- `change` — a single edit/change event (payload includes `ops`, `clientId`, `timestamp`)
-- `cursor` — user cursor/selection updates
-- `ack` — server acknowledgement of a received change
-- `presence` — user join/leave notifications
-
-Each `change` event includes a logical timestamp (e.g., ISO string or epoch ms) and a `clientId`. The system relies on timestamps to apply Last-Write-Wins.
+- `join` — Client requests to join a specific room.
+- `joined` — Server notifies clients that a new user has joined the room.
+- `code-change` — Emitted when the editor content changes (payload includes the full `code` string).
+- `sync-code` — Used to synchronize the current code state with a newly joined client.
+- `disconnected` — Notifies the room when a user leaves.
 
 ## Conflict Resolution — Last-Write-Wins (LWW)
 
-LWW is intentionally simple and deterministic: when two or more conflicting edits target the same region, the edit with the latest timestamp wins and is accepted as the canonical state. Implementation notes:
+This project implements a simplified LWW strategy:
 
-- Clients timestamp outgoing changes with local time; the server may overwrite with server time to avoid clock skew.
-- On receiving a `change`, the server compares the incoming change timestamp with the currently-applied timestamp for the affected range/object. If the incoming timestamp is newer, the server accepts and broadcasts it; otherwise it's rejected or ignored.
-- The server should emit `ack` (accepted/rejected) so the originating client can reconcile optimistic UI state.
+- The server acts as the single source of truth for the broadcast order.
+- When multiple clients edit the code, the server broadcasts the updates in the order they are received.
+- Each client applies the incoming `code-change` event by overwriting their local editor state.
+- Because the server processes and broadcasts sequentially, the "last write" to reach the server effectively "wins" and synchronizes across all clients.
 
-Tradeoffs: LWW is simple and works well for line/field-level edits or systems where last update semantics are acceptable. It is not suitable for fine-grained OT/CRDT-style merging where intent preservation is required.
+**Tradeoffs**: This approach is simple and easy to implement but can lead to "overwriting" if two users type in different locations at the exact same time, as the entire document is synchronized rather than granular edits.
 
 ## Getting Started (development)
 
 Prerequisites: Node.js (14+ recommended) and npm or yarn.
 
-Install dependencies:
+1. **Install dependencies**:
+   ```bash
+   npm install
+   ```
 
-```bash
-npm install
-```
+2. **Run the development environment**:
+   - Start the frontend: `npm run start:front`
+   - Start the server: `npm run server:dev`
 
-Run the dev server (React + socket server if available):
-
-```bash
-npm start
-```
-
-Build for production:
-
-```bash
-npm run build
-```
-
-Notes: Ensure backend is running alongside the React dev server or configured as a proxy in `package.json`.
+3. **Build for production**:
+   ```bash
+   npm run build
+   npm start
+   ```
 
 ## Development Notes
 
-- Look at `src/socket.js` for the client socket wrapper and `src/components/Editor.js` for how change events are produced and applied.
-- Ensure every change event contains `clientId` and `timestamp` fields to support LWW.
-- Consider normalizing timestamps to server time on receipt to reduce clock skew issues.
-- For more robust merges consider CRDTs or Operational Transform if you need to preserve concurrent edits rather than prefer last write.
+- Look at `src/socket.js` for the client-side Socket.io initialization.
+- View `server.js` for the backend room management and broadcasting logic.
+- The editor is powered by CodeMirror (`src/components/Editor.js`), which handles the rendering and change detection.
 
 ## Testing & Debugging
 
 - Open multiple browser windows to simulate concurrent editors.
-- Observe `change`, `ack`, and `presence` events in the browser console (or server logs) to verify behavior.
+- Inspect the network tab or console logs to see the `code-change` events being emitted and received.
 
 ## Contributing
 
